@@ -85,6 +85,7 @@
 #define CAS_DEFAULT_VALIDATE_URL CAS_DEFAULT_VALIDATE_V2_URL
 #define CAS_DEFAULT_PROXY_VALIDATE_URL NULL
 #define CAS_DEFAULT_ROOT_PROXIED_AS_URL NULL
+#define CAS_DEFAULT_SERVICE_PATH "/jasig/mod-auth-cas"
 #define CAS_DEFAULT_COOKIE_ENTROPY 32
 #define CAS_DEFAULT_COOKIE_DOMAIN NULL
 #define CAS_DEFAULT_COOKIE_HTTPONLY 0
@@ -137,6 +138,7 @@ typedef struct cas_dir_cfg {
 	char *CASGatewayCookie;
 	char *CASAuthNHeader;
 	char *CASScrubRequestHeaders;
+	char *CASServicePath;
 } cas_dir_cfg;
 
 typedef struct cas_saml_attr_val {
@@ -168,7 +170,7 @@ typedef struct cas_curl_buffer {
 
 typedef enum {
 	cmd_version, cmd_debug, cmd_validate_server, cmd_validate_depth, cmd_wildcard_cert,
-	cmd_ca_path, cmd_cookie_path, cmd_loginurl, cmd_validateurl, cmd_proxyurl, cmd_cookie_entropy,
+	cmd_ca_path, cmd_cookie_path, cmd_loginurl, cmd_validateurl, cmd_proxyurl, cmd_serviceurl, cmd_cookie_entropy,
 	cmd_session_timeout, cmd_idle_timeout, cmd_cache_interval, cmd_cookie_domain, cmd_cookie_httponly,
 	cmd_sso, cmd_validate_saml, cmd_attribute_delimiter, cmd_attribute_prefix, cmd_root_proxied_as
 } valid_cmds;
@@ -201,9 +203,10 @@ static char *getCASLoginURL(request_rec *r, cas_cfg *c);
 static char *getCASService(request_rec *r, cas_cfg *c);
 static void redirectRequest(request_rec *r, cas_cfg *c);
 static char *getCASTicket(request_rec *r);
-static apr_byte_t removeCASParams(request_rec *r);
+static char *getCASDestination(request_rec *r);
 static int cas_authenticate(request_rec *r);
 static int cas_post_config(apr_pool_t *pool, apr_pool_t *p1, apr_pool_t *p2, server_rec *s);
+static apr_status_t cas_post_perdir_config(request_rec *r);
 static void cas_register_hooks(apr_pool_t *p);
 
 /* apr forward compatibility */
