@@ -1986,41 +1986,57 @@ static int cas_post_config(apr_pool_t *pool, apr_pool_t *p1, apr_pool_t *p2, ser
 	return check_merged_vhost_configs(pool, s);
 }
 
+struct cas_filter_state {
+	char data[1024];
+	apr_size_t len;
+};
+
 static apr_status_t cas_in_filter(ap_filter_t *f, apr_bucket_brigade *bb, ap_input_mode_t mode, apr_read_type_e block, apr_off_t readbytes) {
 	apr_bucket *b;
 	apr_status_t rv;
-	apr_size_t len = 0, offset = 0;
-	char data[1024];
+	apr_size_t len = 0;
 	const char *bucketData;
+	struct cas_filter_state *state;
+	apr_byte_t found_eos = FALSE;
 
-	memset(data, '\0', sizeof(data));
+	state = f->ctx;
+	if (state == NULL) {
+		f->ctx = state = apr_palloc(f->r->pool, sizeof(struct cas_filter_state));
+		state->len = 0;
+		memset(state->data, '\0', sizeof(state->data));
+	}
 
 	rv = ap_get_brigade(f->next, bb, mode, block, readbytes);
 
 	if(rv != APR_SUCCESS) {
-		apr_strerror(rv, data, sizeof(data));
-		ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "unable to retrieve bucket brigade: %s", data);
+		apr_strerror(rv, state->data, sizeof(state->data));
+		ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "unable to retrieve bucket brigade: %s", state->data);
 		return rv;
 	}
 
 	for(b = APR_BRIGADE_FIRST(bb); b != APR_BRIGADE_SENTINEL(bb); b = APR_BUCKET_NEXT(b)) {
+		if(APR_BUCKET_IS_EOS(b))
+			found_eos = TRUE;
 		if(APR_BUCKET_IS_METADATA(b))
 			continue;
 		if(apr_bucket_read(b, &bucketData, &len, APR_BLOCK_READ) == APR_SUCCESS) {
-			if(offset + len >= sizeof(data)) {
+			if(state->len + len >= sizeof(state->data)) {
 				// hack below casts strlen() to unsigned long to avoid %zu vs. %Iu on Linux vs. Win
-				ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "bucket brigade contains more than %lu bytes, truncation required (SSOut may fail)", (unsigned long) sizeof(data));
-				memcpy(data + offset, bucketData, (sizeof(data) - offset) - 1); // copy what we can into the space remaining
-				break;
+				ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "bucket brigade contains more than %lu bytes, truncation required (SSOut may fail)", (unsigned long) sizeof(state->data));
+				memcpy(state->data + state->len, bucketData, (sizeof(state->data) - state->len) - 1); // copy what we can into the space remaining
+				state->len = sizeof(state->data) - 1;
 			} else {
-				memcpy(data + offset, bucketData, len);
+				memcpy(state->data + state->len, bucketData, len);
+				state->len += len;
 			}
 		}
 	}
 
-	// hack below casts strlen() to unsigned long to avoid %zu vs. %Iu on Linux vs. Win
-	ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "read %lu bytes (%s) from incoming buckets\n", (unsigned long) strlen(data), data);
-	CASSAMLLogout(f->r, data);
+	if (found_eos) {
+		// hack below casts strlen() to unsigned long to avoid %zu vs. %Iu on Linux vs. Win
+		ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, f->c->base_server, "read %lu bytes (%s) from incoming buckets\n", (unsigned long) strlen(state->data), state->data);
+		CASSAMLLogout(f->r, state->data);
+	}
 
 	return APR_SUCCESS;
 }
